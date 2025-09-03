@@ -1,5 +1,10 @@
 # RAG-system
 
+[![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=fff)](#)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=fff)](#)
+[![LangChain](https://img.shields.io/badge/LangChain-1c3c3c.svg?logo=langchain&logoColor=white)](#)
+[![Gradio](https://img.shields.io/badge/-Gradio-3E8EFB?style=flat&logo=gradio&logoColor=white)](#)
+
 RAG (Retrieval-Augmented Generation) система для работы с технической документацией на русском и английском языках. Система использует современные языковые модели и поддерживает OCR для обработки сканированных документов.
 
 ## Возможности
