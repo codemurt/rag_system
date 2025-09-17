@@ -1,22 +1,19 @@
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
     git \
     curl \
-    build-essential \
-    libgl1-mesa-glx \
     libglib2.0-0 \
-    libgomp1 \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    libgomp1 \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+RUN mkdir -p /app/chroma_db /app/logs /app/.cache/huggingface /app/uploads && \
+    chmod -R 777 /app/chroma_db /app/logs /app/.cache/huggingface /app/uploads
 
 COPY requirements.txt .
 

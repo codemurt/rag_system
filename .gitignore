@@ -1,0 +1,4 @@
+chroma_db/
+huggingface_cache/
+logs/
+uploads/

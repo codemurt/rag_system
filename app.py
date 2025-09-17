@@ -31,6 +31,12 @@ from docling.datamodel.pipeline_options import VlmPipelineOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.pipeline.vlm_pipeline import VlmPipeline
 
+print(f"CUDA доступна: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"Количество GPU: {torch.cuda.device_count()}")
+    print(f"Текущее устройство: {torch.cuda.current_device()}")
+    print(f"Имя устройства: {torch.cuda.get_device_name(0)}")
+
 log_level = os.getenv('LOG_LEVEL', 'INFO')
 log_file = os.getenv('LOG_FILE', '/app/logs/rag_system.log')
 
@@ -40,8 +46,8 @@ logging.basicConfig(
     level=getattr(logging, log_level),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(log_file, encoding='utf-8')
+        logging.StreamHandler()
+        #logging.FileHandler(log_file, encoding='utf-8')
     ]
 )
 logger = logging.getLogger(__name__)
@@ -106,18 +112,18 @@ class RAG:
         embed_model_id: str = None,
         chunk_size: int = None,
         chunk_overlap: int = None,
-        device: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device: str = None,
         llm: Optional[Any] = None,
         embeddings: Optional[Any] = None
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.logger.info(f"Используемое устройство: {self.device}")
         
         self.model_id = model_id or os.getenv('MODEL_ID', "unsloth/Llama-3.2-1B-Instruct")
         self.embed_model_id = embed_model_id or os.getenv('EMBED_MODEL_ID', "sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
         self.chunk_size = chunk_size or int(os.getenv('CHUNK_SIZE', 512))
         self.chunk_overlap = chunk_overlap or int(os.getenv('CHUNK_OVERLAP', 50))
-        self.device = device
 
         if llm:
             self.llm = llm
@@ -136,20 +142,33 @@ class RAG:
 
     def _init_llm(self):
         """Инициализация языковой модели."""
-        self.logger.info(f"Загрузка модели {self.model_id}...")
+        self.logger.info(f"Загрузка модели {self.model_id} на устройство {self.device}...")
 
         tokenizer = AutoTokenizer.from_pretrained(self.model_id, trust_remote_code=True)
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        model_kwargs = {
+            "torch_dtype": torch.bfloat16 if self.device == "cuda" else torch.float32,
+            "trust_remote_code": True,
+            "low_cpu_mem_usage": True
+        }
+        
+        if self.device == "cuda":
+            model_kwargs["device_map"] = "auto"
+        else:
+            model_kwargs["device_map"] = None
+
         model = AutoModelForCausalLM.from_pretrained(
             self.model_id,
-            torch_dtype=torch.bfloat16 if self.device == "cuda" else torch.float32,
-            device_map="auto" if self.device == "cuda" else None,
-            trust_remote_code=True,
-            low_cpu_mem_usage=True
+            **model_kwargs
         )
+
+        if self.device == "cuda":
+            model = model.to("cuda")
+
+        self.logger.info(f"Модель загружена на устройство: {next(model.parameters()).device}")
 
         pipe = pipeline(
             "text-generation",
@@ -162,7 +181,8 @@ class RAG:
             do_sample=True,
             pad_token_id=tokenizer.pad_token_id,
             truncation=True,
-            max_length=2048
+            max_length=2048,
+            # device=0 if self.device == "cuda" else -1
         )
 
         self.llm = HuggingFacePipeline(pipeline=pipe)
@@ -170,10 +190,14 @@ class RAG:
 
     def _init_embeddings(self):
         """Инициализация модели эмбеддингов."""
-        self.logger.info(f"Загрузка модели эмбеддингов {self.embed_model_id}...")
+        self.logger.info(f"Загрузка модели эмбеддингов {self.embed_model_id} на устройство {self.device}...")
+        
+        model_kwargs = {'device': self.device}
+        
         self.embeddings = HuggingFaceEmbeddings(
             model_name=self.embed_model_id,
-            model_kwargs={'device': self.device}
+            model_kwargs=model_kwargs,
+            encode_kwargs={'normalize_embeddings': True}
         )
         self.logger.info("Модель эмбеддингов загружена успешно!")
 
@@ -455,7 +479,8 @@ def preload_models():
     global global_llm, global_embeddings
 
     logger.info("Предзагрузка LLM...")
-    temp_rag = RAG()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    temp_rag = RAG(device=device)
     global_llm = temp_rag.llm
     global_embeddings = temp_rag.embeddings
     logger.info("Модели предзагружены!")
